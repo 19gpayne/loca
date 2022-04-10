@@ -14,7 +14,7 @@ def welcome():
     """
     return "Welcome to loca!", 200
 
-@home_api.route('/get_monument', methods=['GET'])
+@home_api.route('/get_monument/', methods=['GET'])
 def get_monument():
     """
     Gets a monument with the given ID
