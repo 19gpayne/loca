@@ -1,5 +1,7 @@
 import math
 from flask import Blueprint, request
+from gcloud import upload_images_from_monuments, upload_base64_image, create_product, get_similar_products_file
+
 from redis_init import redis_client
 import uuid
 
@@ -27,43 +29,68 @@ def get_monument():
 def add_monument():
     """
     Adds a monument with the given description
-    JSON format: { lat: <lat>, lon: <lon>, title: "title", description: "description" }
+    JSON format: { lat: <lat>, lon: <lon>, title: "title", description: "description", image: "b64 image" }
     """
     req = request.get_json()
 
-    # TODO call Nicholas's Magic Library
+    product_id = str(uuid.uuid4())
+    uri = upload_base64_image(req["image"])
+    create_product(product_id, req['title'])
 
     description = {
         "lat" : req['lat'],
         "lon" : req['lon'],
         "title": req['title'],
-        "description": req['description']
+        "description": req['description'],
+        "picture": uri
     }
-    redis_client.set(str(uuid.uuid4()), description), 200
+    redis_client.set(str(uuid.uuid4()), description)
+    return True, 200
+
+# Credit to cs95 on Stack Overflow
+def get_distance(lat_1, lng_1, lat_2, lng_2):
+    lng_1, lat_1, lng_2, lat_2 = map(math.radians, [lng_1, lat_1, lng_2, lat_2])
+    d_lat = lat_2 - lat_1
+    d_lng = lng_2 - lng_1
+
+    temp = (
+         math.sin(d_lat / 2) ** 2
+       + math.cos(lat_1)
+       * math.cos(lat_2)
+       * math.sin(d_lng / 2) ** 2
+    )
+
+    return 6373.0 * (2 * math.atan2(math.sqrt(temp), math.sqrt(1 - temp)))
 
 @home_api.route('/find_monument', methods=['POST'])
 def find_monument():
     """
     Find a monument given the picture, latitude, and longitude
     Request format: ?lat=<lat> & lon=<lon>
+    JSON format: { image: <b64 image> }
     """
     req = request.get_json()
     user_loc = (float(request.args['lat']), float(request.args['lon']))
 
-    # TODO call Nicholas's Magic Library
+    matches = get_similar_products_file(req['image'], None, 5)
 
-    match_ids = []
-    closest_monument = None
-    closest_monument_dist = None
+    best_monument = None
+    best_monument_score = None
 
-    for id in match_ids:
-        monument = redis_client.get(id)
-        monument_dist = math.dist(user_loc, (float(monument['lat']) , float(monument['lon'])))
-        if (closest_monument == None or monument_dist < closest_monument_dist):
-            closest_monument_dist = monument_dist
-            closest_monument = monument
+    for match in matches:
+        product = match.product
+        monument = redis_client.get(product.name)
+        monument_dist = get_distance(user_loc[0], user_loc[1], float(monument['lat']) , float(monument['lon']))
 
-    return closest_monument, 200
+        if monument_dist > 1:
+            continue
+
+        monument_score = monument_dist * match.score
+        if best_monument == None or monument_score < best_monument_score:
+            best_monument_score = monument_score
+            best_monument = monument
+
+    return best_monument, 200
 
 @home_api.route('/edit_description', methods=['POST'])
 def edit_description():
@@ -75,4 +102,6 @@ def edit_description():
     description = redis_client.get(req['id'])
     description['description'] = req['description']
     description['datetime'] = req['datetime']
-    redis_client.set(req['id'], description), 200
+    redis_client.set(req['id'], description)
+
+    return True, 200
