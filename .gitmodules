@@ -1,0 +1,3 @@
+[submodule "loca-vision"]
+	path = loca-vision
+	url = https://github.com/loca-ai/loca-vision
